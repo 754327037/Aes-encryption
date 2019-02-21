@@ -1,0 +1,217 @@
+package com.hispeed.development.activity.utils;
+
+import sun.misc.BASE64Decoder;
+import sun.misc.BASE64Encoder;
+
+import javax.crypto.Cipher;
+import java.io.ByteArrayOutputStream;
+import java.security.Key;
+import java.security.KeyFactory;
+import java.security.PrivateKey;
+import java.security.PublicKey;
+import java.security.spec.PKCS8EncodedKeySpec;
+import java.security.spec.X509EncodedKeySpec;
+import java.util.Base64;
+
+public class RSAEncryptUtil {
+    /** 指定加密算法为RSA */
+    public static final String ALGORITHM = "RSA";
+    /** 指定key的大小*/
+    public static final int KEYSIZE = 2048;
+    /** 加密时支持的最大字节数为【证书位数/8 -11】，1024位的证书加密时最大支持117个字节，2048位的证书加密时最大支持245个字节*/
+    public static final int MAX_ENCRYPT_SIZE = KEYSIZE / 8 - 11 - 1;
+    /** 解密是支持的最大字节数为【证书位数/8】，1024位的证书解密时最大支持128个字节，2048位的证书解密时最大支持256个字节*/
+    public static final int MAX_DECRYPT_SIZE = KEYSIZE / 8;
+    /** 字符串编码 */
+    public static final String CHARSET = "UTF-8";
+
+    public static String encrypt(String data, String key) throws Exception {
+        byte[] cryptograph = encrypt(data.getBytes(CHARSET),key);// 生成的密文
+        BASE64Encoder encoder = new BASE64Encoder();
+        String cryptographStr = encoder.encode(cryptograph);//这里不能用new String()来还原字符串
+        return cryptographStr;
+    }
+
+    public static String decrypt(String data, String key) throws Exception {
+        BASE64Decoder base64Decoder= new BASE64Decoder();
+        byte[] d  =  base64Decoder.decodeBuffer(data);
+        byte[] target = decrypt(d,key);// 解密密文
+        return new String(target, CHARSET);
+    }
+
+    //******************************************************************************************
+    //                                                                              分段加解密
+    //******************************************************************************************
+    /**
+     * 分段加密
+     */
+    private static byte[] encrypt(byte[] data,String key) throws Exception {
+        Cipher cipher = Cipher.getInstance(getPrivateKey(key).getAlgorithm());
+        cipher.init(Cipher.ENCRYPT_MODE, getPrivateKey(key));
+        int inputLen = data.length;
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        int offSet = 0;
+        for (int i = 0; inputLen - offSet > 0; offSet = i * MAX_ENCRYPT_SIZE) {
+            byte[] cache;
+            if (inputLen - offSet > MAX_ENCRYPT_SIZE) cache = cipher.doFinal(data, offSet, MAX_ENCRYPT_SIZE);
+            else cache = cipher.doFinal(data, offSet, inputLen - offSet);
+            out.write(cache, 0, cache.length);
+            ++i;
+        }
+        byte[] encryptedData = out.toByteArray();
+        out.close();
+        return encryptedData;
+    }
+    /**
+     * 分段解密
+     */
+    private static byte[] decrypt(byte[] encryptedData,String key) throws Exception {
+        Cipher cipher = Cipher.getInstance(getPublicKey(key).getAlgorithm());
+        cipher.init(Cipher.DECRYPT_MODE, getPublicKey(key));
+        int inputLen = encryptedData.length;
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        int offSet = 0;
+        for (int i = 0; inputLen - offSet > 0; offSet = i * MAX_DECRYPT_SIZE) {
+            byte[] cache;
+            if (inputLen - offSet > MAX_DECRYPT_SIZE) cache = cipher.doFinal(encryptedData, offSet, MAX_DECRYPT_SIZE);
+            else cache = cipher.doFinal(encryptedData, offSet, inputLen - offSet);
+            out.write(cache, 0, cache.length);
+            ++i;
+        }
+        byte[] decryptedData = out.toByteArray();
+        out.close();
+        return decryptedData;
+    }
+
+    /**
+     * 分段加密: 公钥加密
+     */
+    public static String encryptByPublicKey(String data, String key) throws Exception {
+        byte[] cryptograph = encrypt_PublicKey(data.getBytes(CHARSET),key);// 生成的密文
+        BASE64Encoder encoder = new BASE64Encoder();
+        String cryptographStr = encoder.encode(cryptograph);//这里不能用new String()来还原字符串
+        return cryptographStr;
+    }
+    /**
+     * 分段解密: 私钥解密
+     */
+    public static String decryptByPrivateKey(String data, String key) throws Exception {
+        BASE64Decoder base64Decoder= new BASE64Decoder();
+        byte[] d  =  base64Decoder.decodeBuffer(data);
+        byte[] target = decrypt_PrivateKey(d,key);// 解密密文
+        return new String(target, CHARSET);
+    }
+
+
+    public static byte[] encrypt_PublicKey(byte[] data, String publicKey) throws Exception {
+        byte[] keyBytes = Base64.getDecoder().decode(publicKey);//使用JDK的util包下的base64实现解码
+        X509EncodedKeySpec x509KeySpec = new X509EncodedKeySpec(keyBytes);
+        KeyFactory keyFactory = KeyFactory.getInstance(ALGORITHM);//使用KeyFactory工厂处理公钥
+        Key publicK = keyFactory.generatePublic(x509KeySpec);
+        // 对数据加密
+        Cipher cipher = Cipher.getInstance(keyFactory.getAlgorithm());//使用Cipher.getInstance加密
+        cipher.init(Cipher.ENCRYPT_MODE, publicK);
+        int inputLen = data.length;
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        int offSet = 0;
+        byte[] cache;
+        int i = 0;
+        // 对数据分段加密
+        while (inputLen - offSet > 0) {
+            if (inputLen - offSet > MAX_ENCRYPT_SIZE) {
+                cache = cipher.doFinal(data, offSet, MAX_ENCRYPT_SIZE);
+            } else {
+                cache = cipher.doFinal(data, offSet, inputLen - offSet);
+            }
+            out.write(cache, 0, cache.length);
+            i++;
+            offSet = i * MAX_ENCRYPT_SIZE;
+        }
+        byte[] encryptedData = out.toByteArray();
+        out.close();
+        return encryptedData;
+    }
+
+
+    public static byte[] decrypt_PrivateKey(byte[] encryptedData, String privateKey) throws Exception {
+        byte[] keyBytes = Base64.getDecoder().decode(privateKey.getBytes());//使用JDK的util包下的base64实现解码
+        PKCS8EncodedKeySpec pkcs8KeySpec = new PKCS8EncodedKeySpec(keyBytes);
+        KeyFactory keyFactory = KeyFactory.getInstance(ALGORITHM);//使用KeyFactory工厂处理私钥
+        Key privateK = keyFactory.generatePrivate(pkcs8KeySpec);
+        Cipher cipher = Cipher.getInstance(keyFactory.getAlgorithm());//使用Cipher.getInstance解密
+        cipher.init(Cipher.DECRYPT_MODE, privateK);
+        int inputLen = encryptedData.length;
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        int offSet = 0;
+        byte[] cache;
+        int i = 0;
+        // 对数据分段解密
+        while (inputLen - offSet > 0) {
+            if (inputLen - offSet > MAX_DECRYPT_SIZE) {
+                cache = cipher.doFinal(encryptedData, offSet, MAX_DECRYPT_SIZE);
+            } else {
+                cache = cipher.doFinal(encryptedData, offSet, inputLen - offSet);
+            }
+            out.write(cache, 0, cache.length);
+            i++;
+            offSet = i * MAX_DECRYPT_SIZE;
+        }
+        byte[] decryptedData = out.toByteArray();
+        out.close();
+        return decryptedData;
+    }
+
+    private static byte[] decryptBASE64(String key)
+            throws Exception {
+        return new BASE64Decoder().decodeBuffer(key);
+    }
+
+    private static String encryptBASE64(byte[] key)
+            throws Exception {
+        return new BASE64Encoder().encodeBuffer(key);
+    }
+
+    private static PublicKey getPublicKey(String s)
+            throws Exception {
+        PublicKey publicKey = null;
+        X509EncodedKeySpec bobPubKeySpec = new X509EncodedKeySpec(new BASE64Decoder().decodeBuffer(s));
+
+        KeyFactory keyFactory = KeyFactory.getInstance(ALGORITHM);
+
+        publicKey = keyFactory.generatePublic(bobPubKeySpec);
+
+        return publicKey;
+    }
+
+    private static PrivateKey getPrivateKey(String s)
+            throws Exception {
+        PrivateKey privateKey = null;
+
+        PKCS8EncodedKeySpec priPKCS8 = new PKCS8EncodedKeySpec(new BASE64Decoder().decodeBuffer(s));
+        KeyFactory keyf = KeyFactory.getInstance(ALGORITHM);
+        privateKey = keyf.generatePrivate(priPKCS8);
+        return privateKey;
+    }
+
+
+
+    public static void main(String[]args) throws Exception {
+     String privateKey = "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCSF/eHOj8fXJakh8cmS/UNZC/us35SZwkwaZQWl2bahShwOXTbF3nayGOetnBk3tlQkjinbNct2FM5UN/4Dn5elau0eo+btamI+PwrrCTwRCxJHHPUpKb8wUNXRKZT9+bFD/f5SB0Z/UXEjpSMAdhVihUPKNgTu+sM+hGwV8Y4baBL4asifaMyGzh1G+aeRZxTuOv8b6MUgmX0Q25XxLxUifSQtRfnGF0WjvMHp/KNxnQunYQs7I8DQVuJpSPuSs0fsom+AWjzzsTa3U0IcQuCtyEWU/k2V/r2UTp6Mg5pUQ/uiB6Dm8m1+rOnspOGH42aiqCHo/qv7HIDLPOFXefLAgMBAAECggEBAJDBkLF8JFmF23oxU0H+F1TqhZgGYE9z6qX+pw5vfClfsX7pX4FLVKFU12jGqr04FqoACITUkq3JYEU1foaCjfJYaSdOHYeSy+Z9lxgK3Rr44cyblaYIc7GUKY6J5ijjRNTUCsgFDVjYHU4yXLwRg/LV/CHmPZvoInHcQrSxdCYp8NNMFq3DCxxr/VADYjGGjJ7zYGmG1ZHANMIJ1XXwTxSAyREnMd+j+yUYY7IV68bo1uC19XfuviYWwfwLoknrE1Xh89P5QdqNVsHLeVnW+nky4s+hz6bSzdL+25yFc8UHQfvNWubE2NY3nQSEAD5HaFU2kkj41VsyvaYPaqi18+kCgYEA05nsKlVeT8nT3PBwCjk4PwnmSCMuVuW9K1eNNazqxWW8Q2yTsWHKbS3E+8oI5oMgSptL1UfcGnybF+F40OlHPgjnP+TCIz6CwVCPH1vUhusUrFN3dOhxVSNpymvLv8pGAUcoXdiZ+0w3eaZDT2yCvemDLpni3foxyPg4b+qffYcCgYEAsL9T3qDP7L+bl+HpVQVjyVsvRDeWxxjJAvQ8bC2bI+o+J7ekSsKDTPx/jFL6Zu9/Ay7v+BRqCQxWKim30hXGacOAGzk5wvyetLe9QW6G677RyH1BBjEu/3bZXINKwNvcVVCmfn0IfG/jG12c7jBQRwCTq4kAPxst8O9e59MdtJ0CgYAwVy24zh/ponYgN12hOEk9PYm6WS8w8vMwf6Pm60YHKqLD1H45O9n+70HdM96sqrAp2yiL5QrHkkfsQLpVH7YC2g3abuxbGODOQRUxWM1ItVPXuonDz4Z0qM52TAIUIqWzjQoPxngHDPZveChQcL29nSc28jj99TaCbxKVnsgo6QKBgGthUgsHmEs1fcogrinBRIaop2bCfxAmtrjcuXjfnEmNnoVyxJXG5w52uOb/4rF2/6tncNM/U8x7ej3TaqJwKENJSyM++SDFaYZRuuFtzPqcy8cKkd65Mtxx0EysV1YkPRB4Fy7xt54iO8/8Z8MuBxeb+htU+JleYeLnCrm9QWbhAoGALUbTN7GA3kvaN5YCLXO4n8gJGnExNSRtpExYXjcseq569RFaCgGwr2z9wt2fc5zSp/SR4c0zjcLkjJtfau4faaxdDjGwPVRZcswnV6NUlAjp8BUovcai6sAFmI1c4V9nLDKiTL38/uMHzWlfCq2v5gzmdZ08DkyfBbaMHRXZ65M=";
+     String publickey = "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAkhf3hzo/H1yWpIfHJkv1DWQv7rN+UmcJMGmUFpdm2oUocDl02xd52shjnrZwZN7ZUJI4p2zXLdhTOVDf+A5+XpWrtHqPm7WpiPj8K6wk8EQsSRxz1KSm/MFDV0SmU/fmxQ/3+UgdGf1FxI6UjAHYVYoVDyjYE7vrDPoRsFfGOG2gS+GrIn2jMhs4dRvmnkWcU7jr/G+jFIJl9ENuV8S8VIn0kLUX5xhdFo7zB6fyjcZ0Lp2ELOyPA0FbiaUj7krNH7KJvgFo887E2t1NCHELgrchFlP5Nlf69lE6ejIOaVEP7ogeg5vJtfqzp7KThh+Nmoqgh6P6r+xyAyzzhV3nywIDAQAB";
+     System.out.println("公钥加密——私钥解密");
+
+     String source = "ac_root=201901030luckbag&at_num=20190116134&pid=spi20181128104423342203&timestamp=1548137592490&uid=2088222287563629";//需要加密的原文
+     System.out.println("加密前原文：\r\n" + source);
+
+     String encodedData = RSAEncryptUtil.encryptByPublicKey(source, publickey);//加密
+     String encoderStr = Base64Url.encode(encodedData);
+     System.out.println("加密后内容sign：\r\n" + encoderStr);
+
+     String decodedData = Base64Url.decode(encoderStr);
+     String decodedStr = RSAEncryptUtil.decryptByPrivateKey(decodedData, privateKey);//解密
+     System.out.println("解密后内容: \r\n" + decodedStr);
+
+     }
+
+}
+ 
