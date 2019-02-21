@@ -142,22 +142,6 @@ class RSACrypt
         return base64_encode($encrypted);
     }
 
-    /**
-     * 公钥加密
-     * @param $data
-     * @return mixed
-     */
-    public function publicEncrypt1($data)
-    {
-        $publicKey = $this->checkPublicKey();
-
-        openssl_public_encrypt($data, $encrypted, $publicKey);
-
-        openssl_free_key($publicKey);
-
-        return $encrypted;
-    }
-
 
     /**
      * 公钥解密
@@ -334,6 +318,70 @@ class RSACrypt
         }
 
         return $res;
+    }
+
+
+    /**
+     * 公钥安全加密
+     * @param $data
+     * @return mixed
+     */
+    public function publicSafeEncrypt($data)
+    {
+        $publicKey = $this->checkPublicKey();
+
+        openssl_public_encrypt($data, $encrypted, $publicKey);
+
+        openssl_free_key($publicKey);
+
+        return self::urlsafe_b64decode($encrypted);
+    }
+
+    /**
+     * 私钥安全解密
+     * @param $data
+     * @return mixed
+     */
+    public function privateSafeDecrypt($data)
+    {
+        $privateKey = $this->checkPrivateKey();
+
+        openssl_private_decrypt(self::urlsafe_b64encode($data), $decrypted, $privateKey);
+
+        openssl_free_key($privateKey);
+
+        return $decrypted;
+    }
+
+    /**
+     * URL base64解码
+     * '-' -> '+'
+     * '_' -> '/'
+     * 字符串长度%4的余数，补'='
+     * @param unknown $string
+     */
+    public function urlsafe_b64decode($string)
+    {
+        $data = str_replace(array('-', '_'), array('+', '/'), $string);
+        $mod4 = strlen($data) % 4;
+        if ($mod4) {
+            $data .= substr('====', $mod4);
+        }
+        return base64_decode($data);
+    }
+
+    /**
+     * URL base64编码
+     * '+' -> '-'
+     * '/' -> '_'
+     * '=' -> ''
+     * @param unknown $string
+     */
+    public function urlsafe_b64encode($string)
+    {
+        $data = base64_encode($string);
+        $data = str_replace(array('+', '/', '='), array('-', '_', ''), $data);
+        return $data;
     }
 
 }
